@@ -26,6 +26,7 @@
 	8. view & pure functions
  */
 pragma solidity ^0.8.20;
+import {DecentralizedStableCoin} from "./DecentralizedStableCoin.sol";
 
 /**
  * @title DSCEngine
@@ -42,12 +43,17 @@ pragma solidity ^0.8.20;
  * @notice This contract is Very loosely based on the MakerDAO (DAI) system
  */
 contract DSCEngine {
-    function depositCollateralAndMintDsc() external {}
-
+    /*//////////////////////////////////////////////////////////////
+                            STATE VARIABLES
+    //////////////////////////////////////////////////////////////*/
+    mapping(address tokenAddress => address priceFeed) private s_priceFeeds;
+    DecentralizedStableCoin private immutable i_dscToken;
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
     error DSCEngine__NeedsMoreThenZero();
+    error DSCEngine__TokenAddressesAndPriceFeedAddressesMustBeTheSameLength();
+    error DSCEngine__TokenAddressIsNotAllowed();
 
     /*//////////////////////////////////////////////////////////////
                                MODIFIERS
@@ -57,9 +63,36 @@ contract DSCEngine {
         _;
     }
 
+    modifier isAllowedToken(address _token) {
+        if (s_priceFeeds[_token] == address(0)) {
+            revert DSCEngine__TokenAddressIsNotAllowed();
+        }
+        _;
+    }
+
     /*//////////////////////////////////////////////////////////////
                                FUNCTIONS
     //////////////////////////////////////////////////////////////*/
+    constructor(
+        address[] memory _allowedTokenAddresses,
+        address[] memory _priceFeedsAddresses,
+        address _dscAddress
+    ) {
+        if (_allowedTokenAddresses.length != _priceFeedsAddresses.length) {
+            revert DSCEngine__TokenAddressesAndPriceFeedAddressesMustBeTheSameLength();
+        }
+        for (uint256 i = 0; i < _allowedTokenAddresses.length; i++) {
+            s_priceFeeds[_allowedTokenAddresses[i]] = _priceFeedsAddresses[i];
+        }
+
+        i_dscToken = DecentralizedStableCoin(_dscAddress);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                           EXTERNAL FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+    function depositCollateralAndMintDsc() external {}
+
     /**
      *
      * @param _tokenCollateralAddress The address of the token to deposit as collateral
@@ -68,7 +101,9 @@ contract DSCEngine {
     function depositCollateral(
         address _tokenCollateralAddress,
         uint256 _amountCollateral
-    ) external moreThenZero(_amountCollateral) {}
+    ) external moreThenZero(_amountCollateral) isAllowedToken(_tokenCollateralAddress) {
+
+    }
 
     function redeemCollateral() external {}
 
