@@ -1,0 +1,9 @@
+{
+  "cSpell.words": ["Ilie", "Razvan"],
+  "solidity.packageDefaultDependenciesDirectory": "lib",
+  "solidity.packageDefaultDependenciesContractsDirectory": "",
+  "solidity.compileUsingRemoteVersion": "v0.8.20+commit.b61c2a91", // or your version
+  "solidity.remappings": [
+    "@openzeppelin/contracts=lib/openzeppelin-contracts/contracts"
+  ]
+}
