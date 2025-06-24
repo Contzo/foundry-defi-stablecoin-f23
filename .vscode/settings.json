@@ -1,5 +1,9 @@
 {
-  "cSpell.words": ["Ilie", "Razvan"],
+  "cSpell.words": [
+    "Ilie",
+    "overcollateralized",
+    "Razvan"
+  ],
   "solidity.packageDefaultDependenciesDirectory": "lib",
   "solidity.packageDefaultDependenciesContractsDirectory": "",
   "solidity.compileUsingRemoteVersion": "v0.8.20+commit.b61c2a91", // or your version
