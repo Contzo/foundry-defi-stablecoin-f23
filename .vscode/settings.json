@@ -1,8 +1,11 @@
 {
   "cSpell.words": [
+    "Chianlink",
+    "IERC",
     "Ilie",
     "overcollateralized",
-    "Razvan"
+    "Razvan",
+    "Reentrancy"
   ],
   "solidity.packageDefaultDependenciesDirectory": "lib",
   "solidity.packageDefaultDependenciesContractsDirectory": "",
