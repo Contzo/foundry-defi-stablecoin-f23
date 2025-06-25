@@ -29,7 +29,7 @@ pragma solidity ^0.8.20;
 
 import {DecentralizedStableCoin} from "./DecentralizedStableCoin.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {IERC20} from "@openzeppelin/contracts/interfaces/IERC20.sol"; 
+import {IERC20} from "@openzeppelin/contracts/interfaces/IERC20.sol";
 
 /**
  * @title DSCEngine
@@ -52,18 +52,19 @@ contract DSCEngine is ReentrancyGuard {
     mapping(address tokenAddress => address priceFeed) private s_priceFeeds;
     DecentralizedStableCoin private immutable i_dscToken;
     mapping(address user => mapping(address token => uint256 amount)) private s_collateralDeposited;
+    mapping(address user => uint256 amountDSCMinted) s_DSCMinted;
 
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
-    event CollateralDeposited(address indexed user, address indexed token, uint256 amount); 
+    event CollateralDeposited(address indexed user, address indexed token, uint256 amount);
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
 
     error DSCEngine__NeedsMoreThenZero();
     error DSCEngine__TokenAddressesAndPriceFeedAddressesMustBeTheSameLength();
-    error DSCEngine__TransferFailed(); 
+    error DSCEngine__TransferFailed();
     error DSCEngine__TokenAddressIsNotAllowed();
 
     /*//////////////////////////////////////////////////////////////
@@ -113,15 +114,23 @@ contract DSCEngine is ReentrancyGuard {
     {
         s_collateralDeposited[msg.sender][_tokenCollateralAddress] += _amountCollateral;
         emit CollateralDeposited(msg.sender, _tokenCollateralAddress, _amountCollateral);
-        bool transferSuccess = IERC20(_tokenCollateralAddress).transferFrom(msg.sender, address(this), _amountCollateral);
-        if(!transferSuccess){
-            revert DSCEngine__TransferFailed() ; 
+        bool transferSuccess =
+            IERC20(_tokenCollateralAddress).transferFrom(msg.sender, address(this), _amountCollateral);
+        if (!transferSuccess) {
+            revert DSCEngine__TransferFailed();
         }
     }
 
     function redeemCollateral() external {}
 
-    function mintDsc() external {}
+    /**
+     * @notice Follows CEI
+     * @param amountDscToMint - The amount of decentralized stable coin to mint
+     * @notice They must have more collateral then the minimum threshold
+     */
+    function mintDsc(uint256 amountDscToMint) external moreThenZero(amountDscToMint) nonReentrant {
+        s_DSCMinted[msg.sender] += amountDscToMint;
+    }
 
     function redeemCollateralForDsc() external {}
 
@@ -130,4 +139,13 @@ contract DSCEngine is ReentrancyGuard {
     function liquidate() external {}
 
     function getHealthFactor() external view {}
+
+    /*//////////////////////////////////////////////////////////////
+                      PRIVATE & INTERNAL FUNCTION
+    //////////////////////////////////////////////////////////////*/
+
+    function revertIfHealthFactorIsBroken(address user) internal view {
+        // 1. Checks the health factor
+        // 2. Revert if the health factor is <1
+    }
 }
