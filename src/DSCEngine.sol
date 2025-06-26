@@ -30,6 +30,7 @@ pragma solidity ^0.8.20;
 import {DecentralizedStableCoin} from "./DecentralizedStableCoin.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/interfaces/IERC20.sol";
+import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 
 /**
  * @title DSCEngine
@@ -53,10 +54,14 @@ contract DSCEngine is ReentrancyGuard {
     DecentralizedStableCoin private immutable i_dscToken;
     mapping(address user => mapping(address token => uint256 amount)) private s_collateralDeposited;
     mapping(address user => uint256 amountDSCMinted) s_DSCMinted;
-
+    address[] private s_collateralTokens;
+    uint256 private constant ADDITIONAL_PRICE_FEED_PRECISION = 1e10;
+    uint256 private constant PRECISION = 1e18;
+    uint256 private constant LIQUIDATION_THRESHOLD = 50;
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
+
     event CollateralDeposited(address indexed user, address indexed token, uint256 amount);
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
@@ -91,6 +96,7 @@ contract DSCEngine is ReentrancyGuard {
         }
         for (uint256 i = 0; i < _allowedTokenAddresses.length; i++) {
             s_priceFeeds[_allowedTokenAddresses[i]] = _priceFeedsAddresses[i];
+            s_collateralTokens.push(_allowedTokenAddresses[i]);
         }
 
         i_dscToken = DecentralizedStableCoin(_dscAddress);
@@ -141,10 +147,45 @@ contract DSCEngine is ReentrancyGuard {
     function getHealthFactor() external view {}
 
     /*//////////////////////////////////////////////////////////////
+                            PUBLIC FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+    function getAccountCollateralValueInUSD(address _user) public view returns (uint256 totalUSDValue) {
+        // loop through each collateral token the user has, and map it to the price in order to get the USD.
+        uint256 collateralTokensLength = s_collateralTokens.length;
+        for (uint256 i = 0; i < collateralTokensLength; i++) {
+            address token = s_collateralTokens[i];
+            uint256 tokenAmount = s_collateralDeposited[_user][token];
+            totalUSDValue += getUSDValue(token, tokenAmount);
+        }
+    }
+
+    function getUSDValue(address _token, uint256 _amount) public view returns (uint256 USDValue) {
+        AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[_token]);
+        (, int256 price,,,) = priceFeed.latestRoundData();
+        USDValue = ((uint256(price) * ADDITIONAL_PRICE_FEED_PRECISION) * _amount) / PRECISION;
+    }
+    /*//////////////////////////////////////////////////////////////
                       PRIVATE & INTERNAL FUNCTION
     //////////////////////////////////////////////////////////////*/
 
-    function revertIfHealthFactorIsBroken(address user) internal view {
+    function _getAccountInformation(address _user)
+        private
+        view
+        returns (uint256 totalDSCMinted, uint256 collateralValueInUSD)
+    {
+        totalDSCMinted = s_DSCMinted[_user];
+        collateralValueInUSD = getAccountCollateralValueInUSD(_user);
+    }
+
+    function _healthFactor(address user) private view returns (uint256) {
+        // total DSC minted
+        // total collateral value
+        (uint256 totalDSCMinted, uint256 collateralValueInUSD) = _getAccountInformation(user);
+        uint256 collateralAdjustedForThreshold = (collateralValueInUSD * LIQUIDATION_THRESHOLD) / 100;
+        return (collateralAdjustedForThreshold * PRECISION) / totalDSCMinted;
+    }
+
+    function _revertIfHealthFactorIsBroken(address user) internal view {
         // 1. Checks the health factor
         // 2. Revert if the health factor is <1
     }

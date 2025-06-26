@@ -10,6 +10,6 @@ build :; forge build
 
 test :; forge  test
 
-install :; forge install openzeppelin/openzeppelin-contracts --no-commit && forge install foundry-rs/forge-std --no-commit 
+install :; forge install openzeppelin/openzeppelin-contracts --no-commit && forge install foundry-rs/forge-std --no-commit  && forge install smartcontractkit/chainlink-brownie-contracts --no-commit
 
 # deploy-anvil :; forge script script/DeployOurToken.s.sol:DeployOutToken --rpc-url $(ANVIL_RPC_URL) --account LocalAnvilWallet --broadcast
