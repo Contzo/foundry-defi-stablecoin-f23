@@ -58,7 +58,7 @@ contract DSCEngine is ReentrancyGuard {
     uint256 private constant ADDITIONAL_PRICE_FEED_PRECISION = 1e10;
     uint256 private constant PRECISION = 1e18;
     uint256 private constant LIQUIDATION_THRESHOLD = 5e17;
-    uint256 private constant MIN_HEALTH_FACTOR = 1;
+    uint256 private constant MIN_HEALTH_FACTOR = 1e18;
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
@@ -73,6 +73,7 @@ contract DSCEngine is ReentrancyGuard {
     error DSCEngine__TransferFailed();
     error DSCEngine__TokenAddressIsNotAllowed();
     error DSCEngine__BrakesHealthFactor(uint256 healthFactor);
+    error DSCEngine__MintFailed();
 
     /*//////////////////////////////////////////////////////////////
                                MODIFIERS
@@ -138,6 +139,9 @@ contract DSCEngine is ReentrancyGuard {
      */
     function mintDsc(uint256 amountDscToMint) external moreThenZero(amountDscToMint) nonReentrant {
         s_DSCMinted[msg.sender] += amountDscToMint;
+        _revertIfHealthFactorIsBroken(msg.sender); // check if the newly minted DSC will brake the health factor
+        bool successMinted = i_dscToken.mint(msg.sender, amountDscToMint);
+        if (!successMinted) revert DSCEngine__MintFailed();
     }
 
     function redeemCollateralForDsc() external {}
