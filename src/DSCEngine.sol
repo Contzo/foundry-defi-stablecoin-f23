@@ -57,7 +57,8 @@ contract DSCEngine is ReentrancyGuard {
     address[] private s_collateralTokens;
     uint256 private constant ADDITIONAL_PRICE_FEED_PRECISION = 1e10;
     uint256 private constant PRECISION = 1e18;
-    uint256 private constant LIQUIDATION_THRESHOLD = 50;
+    uint256 private constant LIQUIDATION_THRESHOLD = 5e17;
+    uint256 private constant MIN_HEALTH_FACTOR = 1;
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
@@ -71,6 +72,7 @@ contract DSCEngine is ReentrancyGuard {
     error DSCEngine__TokenAddressesAndPriceFeedAddressesMustBeTheSameLength();
     error DSCEngine__TransferFailed();
     error DSCEngine__TokenAddressIsNotAllowed();
+    error DSCEngine__BrakesHealthFactor(uint256 healthFactor);
 
     /*//////////////////////////////////////////////////////////////
                                MODIFIERS
@@ -181,12 +183,16 @@ contract DSCEngine is ReentrancyGuard {
         // total DSC minted
         // total collateral value
         (uint256 totalDSCMinted, uint256 collateralValueInUSD) = _getAccountInformation(user);
-        uint256 collateralAdjustedForThreshold = (collateralValueInUSD * LIQUIDATION_THRESHOLD) / 100;
+        uint256 collateralAdjustedForThreshold = (collateralValueInUSD * LIQUIDATION_THRESHOLD) / PRECISION;
         return (collateralAdjustedForThreshold * PRECISION) / totalDSCMinted;
     }
 
     function _revertIfHealthFactorIsBroken(address user) internal view {
         // 1. Checks the health factor
         // 2. Revert if the health factor is <1
+        uint256 healthFactor = _healthFactor(user);
+        if (healthFactor < MIN_HEALTH_FACTOR) {
+            revert DSCEngine__BrakesHealthFactor(healthFactor);
+        }
     }
 }
