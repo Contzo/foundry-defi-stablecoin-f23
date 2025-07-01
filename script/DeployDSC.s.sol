@@ -4,14 +4,22 @@ pragma solidity ^0.8.20;
 import {Script} from "forge-std/Script.sol";
 import {DecentralizedStableCoin} from "../src/DecentralizedStableCoin.sol";
 import {DSCEngine} from "../src/DSCEngine.sol";
+import {HelperConfig} from "./HelperConfig.s.sol";
 
 contract DeployDSC is Script {
-    function run() external returns(DecentralizedStableCoin ,DSCEngine)
-    {
-        vm.startBroadcast() ; 
-        DSCEngine engine = new DSCEngine()
-        // DecentralizedStableCoin coin = new DecentralizedStableCoin() ; 
+    address[] public tokenAddresses;
+    address[] public priceFeedAddresses;
 
-        vm.stopBroadcast() ; 
+    function run() external returns (DecentralizedStableCoin, DSCEngine) {
+        HelperConfig helperConfig = new HelperConfig();
+        (address wethUsdPriceFeed, address wbtUsdPriceFeed, address weth, address wbtc, uint256 deployerKey) =
+            helperConfig.activeNetworkConfig();
+        tokenAddresses = [weth, wbtc];
+        priceFeedAddresses = [wethUsdPriceFeed, wbtUsdPriceFeed];
+        vm.startBroadcast(deployerKey);
+        DecentralizedStableCoin coin = new DecentralizedStableCoin();
+        DSCEngine engine = new DSCEngine(tokenAddresses, priceFeedAddresses, address(coin));
+        coin.transferOwnership(address(DSCEngine));
+        vm.stopBroadcast();
     }
 }
