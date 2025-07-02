@@ -18,7 +18,7 @@ NO_COMMIT_FLAG := $(shell \
   fi)
 
 install:
-	forge install openzeppelin/openzeppelin-contracts $(NO_COMMIT_FLAG)
+	forge install openzeppelin/openzeppelin-contracts@v4.8.3 $(NO_COMMIT_FLAG)
 	forge install foundry-rs/forge-std $(NO_COMMIT_FLAG)
 	forge install smartcontractkit/chainlink-brownie-contracts $(NO_COMMIT_FLAG)
 

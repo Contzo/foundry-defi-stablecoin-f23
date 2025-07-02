@@ -18,7 +18,7 @@ contract HelperConfig is Script {
     uint8 public constant PRICE_FEED_DECIMALS = 8;
     int256 public constant ETH_USD_PRICE = 200e8; // 200 USD
     int256 public constant BTC_USD_PRICE = 20_000e8; // 20,000 USD
-    uint256 public constant INITIAL_BALANCE = 1000e18; // 10 ETH
+    uint256 public constant INITIAL_BALANCE = 1000e18; // 1000 ETH
 
     constructor() {
         if (block.chainid == 11155111) activeNetworkConfig = getSepoliaEthConfig();
