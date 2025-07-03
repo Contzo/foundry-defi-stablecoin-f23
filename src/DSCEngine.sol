@@ -108,7 +108,11 @@ contract DSCEngine is ReentrancyGuard {
     /*//////////////////////////////////////////////////////////////
                            EXTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
-    function depositCollateralAndMintDsc() external {}
+    //** */
+    function depositCollateralAndMintDsc(address tokenCollateralAddress, uint256 amountCollateral, uint256 amountDscToMint) external {
+        depositCollateral(tokenCollateralAddress, amountCollateral);
+        mintDsc(amountDscToMint); 
+    }
 
     /**
      * @notice follows CEI pattern
@@ -116,7 +120,7 @@ contract DSCEngine is ReentrancyGuard {
      * @param _amountCollateral  The amount of collateral to deposit
      */
     function depositCollateral(address _tokenCollateralAddress, uint256 _amountCollateral)
-        external
+        public
         moreThenZero(_amountCollateral)
         isAllowedToken(_tokenCollateralAddress)
         nonReentrant
@@ -137,7 +141,7 @@ contract DSCEngine is ReentrancyGuard {
      * @param amountDscToMint - The amount of decentralized stable coin to mint
      * @notice They must have more collateral then the minimum threshold
      */
-    function mintDsc(uint256 amountDscToMint) external moreThenZero(amountDscToMint) nonReentrant {
+    function mintDsc(uint256 amountDscToMint) public moreThenZero(amountDscToMint) nonReentrant {
         s_DSCMinted[msg.sender] += amountDscToMint;
         _revertIfHealthFactorIsBroken(msg.sender); // check if the newly minted DSC will brake the health factor
         bool successMinted = i_dscToken.mint(msg.sender, amountDscToMint);
