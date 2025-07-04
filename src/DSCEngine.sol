@@ -64,6 +64,8 @@ contract DSCEngine is ReentrancyGuard {
     //////////////////////////////////////////////////////////////*/
 
     event CollateralDeposited(address indexed user, address indexed token, uint256 amount);
+    event CollateralRedeemed(address indexed user, uint256 indexed amountCollateral, address indexed tokenCollateralAddress); 
+
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
@@ -108,7 +110,12 @@ contract DSCEngine is ReentrancyGuard {
     /*//////////////////////////////////////////////////////////////
                            EXTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
-    //** */
+    /**
+     * @param tokenCollateralAddress the address of the token we want to deposit
+     * @param amountCollateral the amount we want to deposit as collateral
+     * @param amountDscToMint the DSC amount the user wants to mint.  
+     * @notice this function calls both deposit collateral and mint DSC
+     */
     function depositCollateralAndMintDsc(address tokenCollateralAddress, uint256 amountCollateral, uint256 amountDscToMint) external {
         depositCollateral(tokenCollateralAddress, amountCollateral);
         mintDsc(amountDscToMint); 
@@ -134,7 +141,22 @@ contract DSCEngine is ReentrancyGuard {
         }
     }
 
-    function redeemCollateral() external {}
+    /**
+     * @notice the health factor of the user needs to remain > 1 after the redeeming
+     * @param tokenCollateralAddress the address of the token the user wants to redeem
+     * @param amountCollateral the amount of the collateral token, the user wants to redeem. 
+     * @notice CEI: Check, Effects, Interactions
+     */
+    function redeemCollateral(address tokenCollateralAddress, uint256 amountCollateral) public moreThenZero(amountCollateral) nonReentrant{
+        s_collateralDeposited[msg.sender][tokenCollateralAddress] -= amountCollateral ; 
+        emit CollateralRedeemed(msg.sender, amountCollateral, tokenCollateralAddress); 
+        bool success = IERC20(tokenCollateralAddress).transfer(msg.sender, amountCollateral);
+        if(!success){
+            revert DSCEngine__TransferFailed(); 
+        }
+        // check if the health factor is still > 1 
+        _revertIfHealthFactorIsBroken(msg.sender);
+    }
 
     /**
      * @notice Follows CEI
@@ -147,10 +169,31 @@ contract DSCEngine is ReentrancyGuard {
         bool successMinted = i_dscToken.mint(msg.sender, amountDscToMint);
         if (!successMinted) revert DSCEngine__MintFailed();
     }
+    /**
+     * @param tokenCollateralAddress - the address of the token used as collateral
+     * @param amountCollateral - the amount of collateral to redeem. 
+     * @param amountDSCToBurn - the amount of DSC we burn for redeeming the collateral.
+     * @notice the health factor of the user is checked in the both redeem and burn functions
+     */
+    function redeemCollateralForDsc(address tokenCollateralAddress, uint256 amountCollateral, uint256 amountDSCToBurn) external {
+        burnDSC(amountDSCToBurn);
+        redeemCollateral(tokenCollateralAddress, amountCollateral);
+    }
 
-    function redeemCollateralForDsc() external {}
+    /**
+     * @notice burns some amount of DSC 
+     * @notice we might not have to check the health factor again because burning DSC shouldn't result in a health factor < 1. 
+     */
+    function burnDSC(uint256 _amount) public moreThenZero(_amount) {
+        // Effect 
+        s_DSCMinted[msg.sender] -= _amount; 
 
-    function burnDSC() external {}
+        // Interact 
+        bool success = i_dscToken.transferFrom(msg.sender, address(this), _amount); // we need to first transfer the DSC we want ot burn to the engine contract, because this is the owner of the DSC contract an only the engine can call the burn function on the DSC contract 
+        if(!success) revert DSCEngine__TransferFailed() ; 
+        i_dscToken.burn(_amount); 
+        _revertIfHealthFactorIsBroken(msg.sender); // this might never ever hit 
+    }
 
     function liquidate() external {}
 
