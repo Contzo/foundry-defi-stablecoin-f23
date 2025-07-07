@@ -120,7 +120,7 @@ contract DSCEngineTest is Test{
     }
 
      function testDepositCollateralAndMintDSCFailsIfNotEnoughCollateral() public grantEnginePermissionToSpendFunds(address(engine), weth, AMOUNT_COLLATERAL, USER){
-        uint256 DSCToMint = 11 ether ; 
+        uint256 DSCToMint = 15_000 ether ; 
         uint256 collateralValueInUsd = engine.getUSDValue(weth, AMOUNT_COLLATERAL);
         uint256 expectedHealthFactor = engine.calculateHealthFactor(collateralValueInUsd, DSCToMint);
         vm.prank(USER); 
