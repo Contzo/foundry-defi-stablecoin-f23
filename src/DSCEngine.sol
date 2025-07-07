@@ -78,6 +78,7 @@ contract DSCEngine is ReentrancyGuard {
     error DSCEngine__BrakesHealthFactor(uint256 healthFactor);
     error DSCEngine__MintFailed();
     error DSCEngine__HealthFactorOk() ; 
+    error DSCEngine__HealthFactorNotImproved() ; 
 
     /*//////////////////////////////////////////////////////////////
                                MODIFIERS
@@ -143,6 +144,10 @@ contract DSCEngine is ReentrancyGuard {
         }
     }
 
+    function calculateHealthFactor(uint256 collateralValueInUsd, uint256 mintedDSC) public pure returns(uint256 healthFactor){
+        uint256 collateralAdjustedForThreshold = (collateralValueInUsd * LIQUIDATION_THRESHOLD) / PRECISION;
+        healthFactor = (collateralAdjustedForThreshold * PRECISION) / mintedDSC;
+    }
     /**
      * @notice the health factor of the user needs to remain > 1 after the redeeming
      * @param tokenCollateralAddress the address of the token the user wants to redeem
@@ -196,7 +201,7 @@ contract DSCEngine is ReentrancyGuard {
      * @notice A know bug would if the protocol were only 100% collateralize, then we would not be able to pay liquidation incentives. 
      * @notice follow CEI
      */
-    function liquidate(address collateral, address user, uint256 deptToCover) external  moreThenZero(deptToCover) {
+    function liquidate(address collateral, address user, uint256 deptToCover) external  moreThenZero(deptToCover) nonReentrant {
         uint256 startingHealthFactor = _healthFactor(user);
         // check if the user can be liquidated
         if(startingHealthFactor >= MIN_HEALTH_FACTOR) {
@@ -207,10 +212,18 @@ contract DSCEngine is ReentrancyGuard {
         uint256 totalCollateralToRedeem = tokenAmountFromDeptCovered + liquidationBonus ; 
         _redeemCollateral(collateral, totalCollateralToRedeem, user, msg.sender);
         _burnDSC(deptToCover, user, msg.sender);
+
+        uint256 endingUserHealthFactor = _healthFactor(user);
+        // check is liquidation improved the health factor of the user dept
+        if(endingUserHealthFactor < startingHealthFactor) { 
+            revert DSCEngine__HealthFactorNotImproved() ; 
+        }
+        // also revert if the arbitrageur health factor broke as a result of trying to liquidate the user position
+        _revertIfHealthFactorIsBroken(msg.sender);
     }
 
     function getHealthFactor() external view {}
-
+        
     /*//////////////////////////////////////////////////////////////
                             PUBLIC & EXTERNAL VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
@@ -239,6 +252,10 @@ contract DSCEngine is ReentrancyGuard {
         (, int256 price,,,) = priceFeed.latestRoundData(); 
         return (usdAmountInWei * PRECISION) / (uint256(price) * ADDITIONAL_PRICE_FEED_PRECISION); 
     }
+
+    function getAccountInformation(address user) external view returns (uint256 totalDSCMinted, uint256 collateralValueInUSD){
+        (totalDSCMinted, collateralValueInUSD) = _getAccountInformation(user);
+    }
     /*//////////////////////////////////////////////////////////////
                       PRIVATE & INTERNAL FUNCTION
     //////////////////////////////////////////////////////////////*/
@@ -252,6 +269,10 @@ contract DSCEngine is ReentrancyGuard {
         }
     }
 
+    /**
+     * @dev Low-level internal function, do not call unless the function using it is checking the health factor 
+     * being broken or not /
+     */
     function _burnDSC(uint256 amountDSCToBurn, address onBehalf, address dscFrom) internal{
         s_DSCMinted[onBehalf] -= amountDSCToBurn; 
 
@@ -269,12 +290,11 @@ contract DSCEngine is ReentrancyGuard {
         collateralValueInUSD = getAccountCollateralValueInUSD(_user);
     }
 
-    function _healthFactor(address user) private view returns (uint256) {
+    function _healthFactor(address user) private view returns (uint256 healthFactor) {
         // total DSC minted
         // total collateral value
         (uint256 totalDSCMinted, uint256 collateralValueInUSD) = _getAccountInformation(user);
-        uint256 collateralAdjustedForThreshold = (collateralValueInUSD * LIQUIDATION_THRESHOLD) / PRECISION;
-        return (collateralAdjustedForThreshold * PRECISION) / totalDSCMinted;
+        healthFactor = calculateHealthFactor(collateralValueInUSD, totalDSCMinted);
     }
 
     function _revertIfHealthFactorIsBroken(address user) internal view {
