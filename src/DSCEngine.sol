@@ -145,6 +145,7 @@ contract DSCEngine is ReentrancyGuard {
     }
 
     function calculateHealthFactor(uint256 collateralValueInUsd, uint256 mintedDSC) public pure returns(uint256 healthFactor){
+        if(mintedDSC == 0) return type(uint256).max ;
         uint256 collateralAdjustedForThreshold = (collateralValueInUsd * LIQUIDATION_THRESHOLD) / PRECISION;
         healthFactor = (collateralAdjustedForThreshold * PRECISION) / mintedDSC;
     }
@@ -169,6 +170,15 @@ contract DSCEngine is ReentrancyGuard {
         s_DSCMinted[msg.sender] += amountDscToMint;
         _revertIfHealthFactorIsBroken(msg.sender); // check if the newly minted DSC will brake the health factor
         bool successMinted = i_dscToken.mint(msg.sender, amountDscToMint);
+        if (!successMinted) revert DSCEngine__MintFailed();
+    }
+
+    /**
+     * @notice this function should only be used for liquidation test, will be removed in production
+     */
+    function unsafeMintDsc(address _user, uint256 _amountDSCToMint) external{
+        s_DSCMinted[_user] += _amountDSCToMint; 
+        bool successMinted = i_dscToken.mint(_user, _amountDSCToMint); 
         if (!successMinted) revert DSCEngine__MintFailed();
     }
     /**
