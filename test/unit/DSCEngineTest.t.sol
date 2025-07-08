@@ -17,6 +17,7 @@ contract DSCEngineTest is Test{
     address weth; 
 
     address public USER = makeAddr("user"); 
+    address public ARBITRAGEUR = makeAddr("arbitrageur"); 
     uint256 public constant AMOUNT_COLLATERAL = 10 ether; 
     uint256 public constant INITIAL_AMOUNT = 1000 ether ; 
 
@@ -226,7 +227,7 @@ contract DSCEngineTest is Test{
         vm.assertEq(expectedRemainingDSC, remainingDSC);
         vm.assertEq(expectedRemainingCollateralValueInUsd, remainingCollateralValueInUsd);
     }
-    function testLiquidation() public depositAndMintDSC(USER, 10_000 ether){
+    function testLiquidation() public depositAndMintDSC(USER, 10_000 ether) depositAndMintDSC(ARBITRAGEUR, 5_000 ether){
         // Initiate some good dept first 
         // Initiate some arbitrageur account in the system. 
         // Make the user dept bad on purpose.
