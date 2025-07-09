@@ -26,6 +26,7 @@ contract DSCEngineTest is Test{
         (coin, engine, helperConfig)= deployer.run() ; 
         (ethUsdPriceFeed,wbtcUsdPriceFeed, weth,,) = helperConfig.activeNetworkConfig() ; 
         ERC20Mock(weth).mint(USER, INITIAL_AMOUNT); // mint some ETH to the USER address for testing
+        ERC20Mock(weth).mint(ARBITRAGEUR, INITIAL_AMOUNT); // mint some ETH to the USER address for testing
     }
 
     modifier grantEnginePermissionToSpendFunds(address _engine, address _token, uint256 _amount, address _user){
@@ -137,15 +138,15 @@ contract DSCEngineTest is Test{
 
     function testDepositCollateralAndMintDSC() public grantEnginePermissionToSpendFunds(address(engine), weth, AMOUNT_COLLATERAL, USER){
         // Setup
-        uint256 DSCToMint = 1_000 ether; 
+        uint256 dscToMint = 1_000 ether; 
         uint256 expectedCollateralValueInUsd = engine.getUSDValue(weth, AMOUNT_COLLATERAL); 
         //Execute 
         vm.startPrank(USER);
-        engine.depositCollateralAndMintDsc(weth, AMOUNT_COLLATERAL, DSCToMint);
+        engine.depositCollateralAndMintDsc(weth, AMOUNT_COLLATERAL, dscToMint);
         vm.stopPrank();
         //Assert 
         (uint256 totalDSCMinted, uint256 collateralValueInUsd) = engine.getAccountInformation(USER);
-        vm.assertEq(totalDSCMinted, DSCToMint);
+        vm.assertEq(totalDSCMinted, dscToMint);
         vm.assertEq(collateralValueInUsd, expectedCollateralValueInUsd);
     }
     function testDepositAmount()  grantEnginePermissionToSpendFunds(address(engine), weth, AMOUNT_COLLATERAL, USER) public{
@@ -179,12 +180,12 @@ contract DSCEngineTest is Test{
 
     function testRedeemingToMuchCollateralBrakesHF() public grantEnginePermissionToSpendFunds(address(engine), weth, AMOUNT_COLLATERAL, USER){
         // Setup
-        uint256 DSCToMint = 10_000 ether ; 
+        uint256 dscToMint = 10_000 ether ; 
         uint256 collateralToRedeem = 5 ether; 
         uint256 expectedRemainingCollateralValueInUsd = engine.getUSDValue(weth, (AMOUNT_COLLATERAL-collateralToRedeem));
-        uint256 expectedBrokenHF = engine.calculateHealthFactor(expectedRemainingCollateralValueInUsd, DSCToMint);
+        uint256 expectedBrokenHF = engine.calculateHealthFactor(expectedRemainingCollateralValueInUsd, dscToMint);
         vm.startPrank(USER); 
-        engine.depositCollateralAndMintDsc(weth, AMOUNT_COLLATERAL, DSCToMint);
+        engine.depositCollateralAndMintDsc(weth, AMOUNT_COLLATERAL, dscToMint);
         
         //Execute and assert 
         vm.expectRevert(abi.encodeWithSelector(DSCEngine.DSCEngine__BrakesHealthFactor.selector, expectedBrokenHF)); 
@@ -215,23 +216,48 @@ contract DSCEngineTest is Test{
     function testRedeemCollateralForDSC() public depositAndMintDSC(USER, 1_000 ether) grantEnginePermissionToSpendFunds(address(engine),address(coin), 1_000 ether, USER){
         //Setup
         uint256 collateralToRedeem = 1 ether; 
-        uint256 DSCToBurn = 100 ether; 
+        uint256 dscToBurn = 100 ether; 
         uint256 expectedRemainingCollateralValueInUsd = engine.getUSDValue(weth, AMOUNT_COLLATERAL-collateralToRedeem);
-        uint256 expectedRemainingDSC = 1_000 ether - DSCToBurn; 
+        uint256 expectedRemainingDSC = 1_000 ether - dscToBurn; 
         //Execute
         vm.startPrank(USER);
-        engine.redeemCollateralForDsc(weth, collateralToRedeem, DSCToBurn);
+        engine.redeemCollateralForDsc(weth, collateralToRedeem, dscToBurn);
         vm.stopPrank(); 
         //Assert 
         (uint256 remainingDSC, uint256 remainingCollateralValueInUsd) = engine.getAccountInformation(USER);
         vm.assertEq(expectedRemainingDSC, remainingDSC);
         vm.assertEq(expectedRemainingCollateralValueInUsd, remainingCollateralValueInUsd);
     }
-    function testLiquidation() public depositAndMintDSC(USER, 10_000 ether) depositAndMintDSC(ARBITRAGEUR, 5_000 ether){
+
+    modifier setUpArbitrageurAllowance(uint256 allowance){
+        vm.prank(ARBITRAGEUR); 
+        ERC20Mock(address(coin)).approve(address(engine), allowance); 
+        _;
+    }    
+
+    function testLiquidation() public depositAndMintDSC(USER, 10_000 ether) depositAndMintDSC(ARBITRAGEUR, 5_000 ether) setUpArbitrageurAllowance(2_300 ether) {
         // Initiate some good dept first 
         // Initiate some arbitrageur account in the system. 
         // Make the user dept bad on purpose.
         // Liquidate the bad dept. 
+        //Setup 
+        uint256 badDept = 1_000 ether; 
+        uint256 deptCoveredByArbitrageur = 2_300 ether; 
+               vm.prank(address(engine)); 
+        engine.unsafeMintDsc(USER, badDept);
+        //Execute 
+        vm.startPrank(ARBITRAGEUR); 
+        engine.liquidate(weth, USER, deptCoveredByArbitrageur);
+        vm.stopPrank();
+        uint256 safeUserHF = engine.getHealthFactor(USER);
+        vm.assertTrue(safeUserHF >= 1e18); 
+    }
 
+    function testLiquidationFailsForOkDept() public depositAndMintDSC(USER, 10_000 ether) depositAndMintDSC(ARBITRAGEUR, 5_000 ether) setUpArbitrageurAllowance(2_300 ether){
+        uint256 deptToCover = 2_300 ether ; 
+        //Act an assert 
+        vm.expectRevert(DSCEngine.DSCEngine__HealthFactorOk.selector);
+        vm.startPrank(ARBITRAGEUR);
+        engine.liquidate(weth, USER, deptToCover);
     }
 }
