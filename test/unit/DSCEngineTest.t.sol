@@ -235,23 +235,23 @@ contract DSCEngineTest is Test{
         _;
     }    
 
-    function testLiquidation() public depositAndMintDSC(USER, 10_000 ether) depositAndMintDSC(ARBITRAGEUR, 5_000 ether) setUpArbitrageurAllowance(2_300 ether) {
-        // Initiate some good dept first 
-        // Initiate some arbitrageur account in the system. 
-        // Make the user dept bad on purpose.
-        // Liquidate the bad dept. 
-        //Setup 
-        uint256 badDept = 1_000 ether; 
-        uint256 deptCoveredByArbitrageur = 2_300 ether; 
-               vm.prank(address(engine)); 
-        engine.unsafeMintDsc(USER, badDept);
-        //Execute 
-        vm.startPrank(ARBITRAGEUR); 
-        engine.liquidate(weth, USER, deptCoveredByArbitrageur);
-        vm.stopPrank();
-        uint256 safeUserHF = engine.getHealthFactor(USER);
-        vm.assertTrue(safeUserHF >= 1e18); 
-    }
+    // function testLiquidation() public depositAndMintDSC(USER, 10_000 ether) depositAndMintDSC(ARBITRAGEUR, 5_000 ether) setUpArbitrageurAllowance(2_300 ether) {
+    //     // Initiate some good dept first 
+    //     // Initiate some arbitrageur account in the system. 
+    //     // Make the user dept bad on purpose.
+    //     // Liquidate the bad dept. 
+    //     //Setup 
+    //     uint256 badDept = 1_000 ether; 
+    //     uint256 deptCoveredByArbitrageur = 2_300 ether; 
+    //            vm.prank(address(engine)); 
+    //     engine.unsafeMintDsc(USER, badDept);
+    //     //Execute 
+    //     vm.startPrank(ARBITRAGEUR); 
+    //     engine.liquidate(weth, USER, deptCoveredByArbitrageur);
+    //     vm.stopPrank();
+    //     uint256 safeUserHF = engine.getHealthFactor(USER);
+    //     vm.assertTrue(safeUserHF >= 1e18); 
+    // }
 
     function testLiquidationFailsForOkDept() public depositAndMintDSC(USER, 10_000 ether) depositAndMintDSC(ARBITRAGEUR, 5_000 ether) setUpArbitrageurAllowance(2_300 ether){
         uint256 deptToCover = 2_300 ether ; 

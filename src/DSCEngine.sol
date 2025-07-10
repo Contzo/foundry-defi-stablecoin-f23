@@ -158,7 +158,7 @@ contract DSCEngine is ReentrancyGuard {
     function redeemCollateral(address tokenCollateralAddress, uint256 amountCollateral) public moreThenZero(amountCollateral) nonReentrant{
        _redeemCollateral(tokenCollateralAddress, amountCollateral, msg.sender, msg.sender); // user redeems its own collateral
       // check if the health factor is still > 1 
-        _revertIfHealthFactorIsBroken(msg.sender);
+        _revertIfHealthFactorIsBroken(msg.sender); 
     }
 
     /**
@@ -176,11 +176,11 @@ contract DSCEngine is ReentrancyGuard {
     /**
      * @notice this function should only be used for liquidation test, will be removed in production
      */
-    function unsafeMintDsc(address _user, uint256 _amountDSCToMint) external{
-        s_DSCMinted[_user] += _amountDSCToMint; 
-        bool successMinted = i_dscToken.mint(_user, _amountDSCToMint); 
-        if (!successMinted) revert DSCEngine__MintFailed();
-    }
+    // function unsafeMintDsc(address _user, uint256 _amountDSCToMint) external{
+    //     s_DSCMinted[_user] += _amountDSCToMint; 
+    //     bool successMinted = i_dscToken.mint(_user, _amountDSCToMint); 
+    //     if (!successMinted) revert DSCEngine__MintFailed();
+    // }
     /**
      * @param tokenCollateralAddress - the address of the token used as collateral
      * @param amountCollateral - the amount of collateral to redeem. 
@@ -317,4 +317,21 @@ contract DSCEngine is ReentrancyGuard {
             revert DSCEngine__BrakesHealthFactor(healthFactor);
         }
     }
+
+    /*//////////////////////////////////////////////////////////////
+                                GETTERS
+    //////////////////////////////////////////////////////////////*/
+  function getCollateralTokens() external view returns (address[] memory) {
+        return s_collateralTokens;
+    }
+
+    function getDsc() external view returns (address) {
+        return address(i_dscToken);
+    }
+
+    function getCollateralTokenPriceFeed(address token) external view returns (address) {
+        return s_priceFeeds[token];
+    }
+
+ 
 }
