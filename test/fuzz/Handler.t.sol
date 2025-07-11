@@ -12,6 +12,7 @@ contract Handler is Test{
     DecentralizedStableCoin coin ; 
     ERC20Mock weth ; 
     ERC20Mock wbtc; 
+    uint256 MAX_DEPOSIT_SIZE = type(uint96).max;
 
     constructor(DSCEngine _dscEngine, DecentralizedStableCoin _coin){
         engine = _dscEngine; 
@@ -23,12 +24,26 @@ contract Handler is Test{
 
     function depositCollateral(uint256 collateralSeed, uint256 amountCollateral) public {
         ERC20Mock collateral = _getCollateralFromSeed(collateralSeed);
+        amountCollateral = bound(amountCollateral, 1, MAX_DEPOSIT_SIZE); 
+        vm.startPrank(msg.sender);
+        collateral.mint(msg.sender, amountCollateral); 
+        collateral.approve(address(engine), amountCollateral);
+
         engine.depositCollateral(address(collateral), amountCollateral);
+        vm.stopPrank();
+    }
+
+    function redeemCollateral(uint256 collateralSeed, uint256 amountCollateral) public{
+        ERC20Mock collateral = _getCollateralFromSeed(collateralSeed);
+        uint256 maxCollateralToRedeem = engine.getCollateralBalanceOfUser(msg.sender, address(collateral));
+        console.log("Max collateral:", maxCollateralToRedeem);
+        amountCollateral = bound(amountCollateral, 0, maxCollateralToRedeem); 
+        if(amountCollateral == 0) return ;
+        engine.redeemCollateral(address(collateral), amountCollateral); 
     }
 
 
-
-    //Helper functions 
+    //Helper functions  
     function _getCollateralFromSeed(uint256 collateralSeed) public view returns(ERC20Mock){
         if(collateralSeed %2 == 0) {
             return weth; 
