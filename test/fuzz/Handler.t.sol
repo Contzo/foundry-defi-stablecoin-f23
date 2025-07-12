@@ -39,6 +39,7 @@ contract Handler is Test{
         console.log("Max collateral:", maxCollateralToRedeem);
         amountCollateral = bound(amountCollateral, 0, maxCollateralToRedeem); 
         if(amountCollateral == 0) return ;
+
         vm.prank(msg.sender);
         engine.redeemCollateral(address(collateral), amountCollateral); 
     }
