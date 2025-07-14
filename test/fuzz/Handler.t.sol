@@ -45,7 +45,10 @@ contract Handler is Test{
     }
 
     function mintDsc(uint256 amount) public{
-        amount = bound(amount, 1, MAX_DEPOSIT_SIZE); 
+        (uint256 totalDscMinted, uint256 collateralValueInUsd) = engine.getAccountInformation(msg.sender);
+        int256 maxDscToMint = (int256(collateralValueInUsd) / 2) - int256(totalDscMinted); // max DSC the sender can mint
+        if(maxDscToMint <= 0) return ; 
+        amount = bound(amount, 1, uint256(maxDscToMint)) ;
         vm.startPrank(msg.sender);
         engine.mintDsc(amount);
         vm.stopPrank();
