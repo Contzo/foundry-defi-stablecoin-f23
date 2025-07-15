@@ -13,6 +13,7 @@ contract Handler is Test{
     ERC20Mock weth ; 
     ERC20Mock wbtc; 
     uint256 MAX_DEPOSIT_SIZE = type(uint96).max;
+    uint256 private constant PRECISION = 1e18;
 
     constructor(DSCEngine _dscEngine, DecentralizedStableCoin _coin){
         engine = _dscEngine; 
@@ -33,16 +34,25 @@ contract Handler is Test{
         vm.stopPrank();
     }
 
-    function redeemCollateral(uint256 collateralSeed, uint256 amountCollateral) public{
-        ERC20Mock collateral = _getCollateralFromSeed(collateralSeed);
-        uint256 maxCollateralToRedeem = engine.getCollateralBalanceOfUser(msg.sender, address(collateral));
-        console.log("Max collateral:", maxCollateralToRedeem);
-        amountCollateral = bound(amountCollateral, 0, maxCollateralToRedeem); 
-        if(amountCollateral == 0) return ;
-
-        vm.prank(msg.sender);
-        engine.redeemCollateral(address(collateral), amountCollateral); 
+function redeemCollateral(uint256 collateralSeed, uint256 amountCollateral) public {
+    ERC20Mock collateral = _getCollateralFromSeed(collateralSeed);
+    (uint256 totalDscMinted, uint256 totalCollateralValueInUsd) = engine.getAccountInformation(msg.sender);
+    uint256 minCollateralValueForMintedDsc = 2 * totalDscMinted; 
+    if (totalCollateralValueInUsd < minCollateralValueForMintedDsc) {
+        // Not enough collateral to safely redeem anything
+        return;
     }
+    uint256 maxCollateralValueToRedeem = totalCollateralValueInUsd - minCollateralValueForMintedDsc ; 
+    uint256 collateralTokenPrice = engine.getUSDValue(address(collateral), 1);
+
+    uint256 maxCollateralToRedeem = (maxCollateralValueToRedeem * PRECISION )/ collateralTokenPrice; 
+    amountCollateral = bound(amountCollateral, 0, maxCollateralToRedeem);
+    console.log("Max collateral to redeem:", maxCollateralToRedeem); 
+    console.log("Amount Collateral to redeem:", amountCollateral); 
+    if (amountCollateral == 0) return;
+    vm.prank(msg.sender);
+    engine.redeemCollateral(address(collateral), amountCollateral);
+}
 
     function mintDsc(uint256 amount) public{
         (uint256 totalDscMinted, uint256 collateralValueInUsd) = engine.getAccountInformation(msg.sender);
@@ -62,4 +72,7 @@ contract Handler is Test{
         }
         return  wbtc ;
     }
+    function min(uint256 a, uint256 b) internal pure returns (uint256) {
+    return a < b ? a : b;
+}
 }  
