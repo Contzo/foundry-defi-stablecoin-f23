@@ -3,12 +3,12 @@ pragma solidity ^0.8.20;
 
 import {Test, console} from "forge-std/Test.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
-import {DeployDSC} from "../../script/DeployDSC.s.sol"; 
-import {DSCEngine} from "../../src/DSCEngine.sol"; 
-import {DecentralizedStableCoin} from "../../src/DecentralizedStableCoin.sol"; 
-import {HelperConfig} from "../../script/HelperConfig.s.sol"; 
+import {DeployDSC} from "../../../script/DeployDSC.s.sol"; 
+import {DSCEngine} from "../../../src/DSCEngine.sol"; 
+import {DecentralizedStableCoin} from "../../../src/DecentralizedStableCoin.sol"; 
+import {HelperConfig} from "../../../script/HelperConfig.s.sol"; 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol"; 
-import {Handler} from "./Handler.t.sol" ;
+import {Handler} from "./ContinueOnRevertHandler.t.sol" ;
 
 
 contract Invariants is StdInvariant{
@@ -29,7 +29,7 @@ contract Invariants is StdInvariant{
         targetContract(address(handler));
     }
 
-    function invariant_protocolMustBeOverCollateralized() public view {
+    function invariant_protocolMustBeOverCollateralized_continueOnRevert() public view {
         // get the total 
         uint256 totalSupply = coin.totalSupply(); // get the total supply of DSC 
         uint256 totalWethDeposited = IERC20(weth).balanceOf(address(engine)); // get the total weth stored in the engine
