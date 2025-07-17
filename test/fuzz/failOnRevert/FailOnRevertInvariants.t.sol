@@ -29,13 +29,15 @@ contract Invariants is StdInvariant{
         targetContract(address(handler));
     }
 
-    function invariant_protocolMustBeOverCollateralized_failOnRevert() public view {
+    function invariant_protocolMustBeOverCollateralized_failOnRevert() public{
         // get the total 
         uint256 totalSupply = coin.totalSupply(); // get the total supply of DSC 
         uint256 totalWethDeposited = IERC20(weth).balanceOf(address(engine)); // get the total weth stored in the engine
         uint256 totalWbtcDeposited = IERC20(wbtc).balanceOf(address(engine)); // get the total wbtc stored in the engine
         uint256 wethValue = engine.getUSDValue(weth, totalWethDeposited);
+        console.log("Weth price:", wethValue); 
         uint256 wbtcValue = engine.getUSDValue(wbtc, totalWbtcDeposited);
+        console.log("Wbtc price:", wbtcValue); 
 
         console.log("Weth value: ", wethValue); 
         console.log("Wbtc value: ", wbtcValue); 

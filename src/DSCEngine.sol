@@ -59,6 +59,7 @@ contract DSCEngine is ReentrancyGuard {
     DecentralizedStableCoin private immutable i_dscToken;
     mapping(address user => mapping(address token => uint256 amount)) private s_collateralDeposited;
     mapping(address user => uint256 amountDSCMinted) s_DSCMinted;
+    mapping(address collateralToken => int256 lastValidCollateralPrice) s_collateralLastValidPrices ; 
     address[] private s_collateralTokens;
     uint256 private constant ADDITIONAL_PRICE_FEED_PRECISION = 1e10;
     uint256 private constant PRECISION = 1e18;
@@ -109,6 +110,8 @@ contract DSCEngine is ReentrancyGuard {
         }
         for (uint256 i = 0; i < _allowedTokenAddresses.length; i++) {
             s_priceFeeds[_allowedTokenAddresses[i]] = _priceFeedsAddresses[i];
+            (, int256 lastValidPrice,,,) = AggregatorV3Interface(_priceFeedsAddresses[i]).stalePriceCheck() ; 
+            s_collateralLastValidPrices[_allowedTokenAddresses[i]] = lastValidPrice; 
             s_collateralTokens.push(_allowedTokenAddresses[i]);
         }
 
@@ -237,14 +240,14 @@ contract DSCEngine is ReentrancyGuard {
         _revertIfHealthFactorIsBroken(msg.sender);
     }
 
-    function getHealthFactor(address user) external view returns(uint256 healthFactor){
+    function getHealthFactor(address user) external  returns(uint256 healthFactor){
         healthFactor = _healthFactor(user);
     }
         
     /*//////////////////////////////////////////////////////////////
                             PUBLIC & EXTERNAL VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/
-    function getAccountCollateralValueInUSD(address _user) public view returns (uint256 totalUSDValue) {
+    function getAccountCollateralValueInUSD(address _user) public  returns (uint256 totalUSDValue) {
         // loop through each collateral token the user has, and map it to the price in order to get the USD.
         uint256 collateralTokensLength = s_collateralTokens.length;
         for (uint256 i = 0; i < collateralTokensLength; i++) {
@@ -254,9 +257,12 @@ contract DSCEngine is ReentrancyGuard {
         }
     }
 
-    function getUSDValue(address _token, uint256 _amount) public view returns (uint256 USDValue) {
+    function getUSDValue(address _token, uint256 _amount) public  returns (uint256 USDValue) {
         AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[_token]);
-        (, int256 price,,,) = priceFeed.stalePriceCheck();
+        // (, int256 price,,,) = priceFeed.stalePriceCheck();
+        int256 lastGoodPrice = s_collateralLastValidPrices[_token]; 
+        int256 price = priceFeed.updatePrice(lastGoodPrice);
+        s_collateralLastValidPrices[_token] = price ;
         USDValue = ((uint256(price) * ADDITIONAL_PRICE_FEED_PRECISION) * _amount) / PRECISION;
     }
 
@@ -264,13 +270,16 @@ contract DSCEngine is ReentrancyGuard {
      * @param token - the address of the ERC20 token we want receive for the USD amount 
      * @param usdAmountInWei - the amount of USD (in wei) we want to convert to token
      */
-    function getTokenAmountFromUSD(address token, uint256 usdAmountInWei) public view returns(uint256){
+    function getTokenAmountFromUSD(address token, uint256 usdAmountInWei) public  returns(uint256){
         AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[token]) ; 
-        (, int256 price,,,) = priceFeed.stalePriceCheck(); 
+        // (, int256 price,,,) = priceFeed.stalePriceCheck(); 
+         int256 lastGoodPrice = s_collateralLastValidPrices[token]; 
+        int256 price = priceFeed.updatePrice(lastGoodPrice);
+        s_collateralLastValidPrices[token] = price ;
         return (usdAmountInWei * PRECISION) / (uint256(price) * ADDITIONAL_PRICE_FEED_PRECISION); 
     }
 
-    function getAccountInformation(address user) external view returns (uint256 totalDSCMinted, uint256 collateralValueInUSD){
+    function getAccountInformation(address user) external  returns (uint256 totalDSCMinted, uint256 collateralValueInUSD){
         (totalDSCMinted, collateralValueInUSD) = _getAccountInformation(user);
     }
     /*//////////////////////////////////////////////////////////////
@@ -300,21 +309,20 @@ contract DSCEngine is ReentrancyGuard {
     }
     function _getAccountInformation(address _user)
         private
-        view
         returns (uint256 totalDSCMinted, uint256 collateralValueInUSD)
     {
         totalDSCMinted = s_DSCMinted[_user];
         collateralValueInUSD = getAccountCollateralValueInUSD(_user);
     }
 
-    function _healthFactor(address user) private view returns (uint256 healthFactor) {
+    function _healthFactor(address user) private  returns (uint256 healthFactor) {
         // total DSC minted
         // total collateral value
         (uint256 totalDSCMinted, uint256 collateralValueInUSD) = _getAccountInformation(user);
         healthFactor = calculateHealthFactor(collateralValueInUSD, totalDSCMinted);
     }
 
-    function _revertIfHealthFactorIsBroken(address user) internal view {
+    function _revertIfHealthFactorIsBroken(address user) internal  {
         // 1. Checks the health factor
         // 2. Revert if the health factor is <1
         uint256 healthFactor = _healthFactor(user);

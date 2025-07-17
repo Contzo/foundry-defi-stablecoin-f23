@@ -54,7 +54,7 @@ contract DSCEngineTest is Test{
                               PRICE TESTS
     //////////////////////////////////////////////////////////////*/ 
 
-    function testGetUsdValue() public view {
+    function testGetUsdValue() public  {
         // Setup
        uint256 ethAmount = 15e18 ; // 15e18 * 2000/ETH = 30,000e18 USD 
        uint256 expectedUsd = 30_000e18 ; 
@@ -64,7 +64,7 @@ contract DSCEngineTest is Test{
         assertEq(expectedUsd, UsdAmount);
     }
 
-    function testGetTokenAmountFromUSD() public view {
+    function testGetTokenAmountFromUSD() public  {
         // Set up 
         uint256 usdAmount = 100 ether; 
         // $2,000/ETH, $100 = 0.05 ETH ; 
@@ -98,7 +98,7 @@ contract DSCEngineTest is Test{
         vm.stopPrank(); 
     }
 
-    function testUserInitiallyHasZeroCollateralValue() public view {
+    function testUserInitiallyHasZeroCollateralValue() public  {
         uint256 expectedInitialCollateralValue = 0 ; 
         uint256 actualCollateralValue = engine.getAccountCollateralValueInUSD(USER) ; 
         assertEq(expectedInitialCollateralValue, actualCollateralValue) ; 

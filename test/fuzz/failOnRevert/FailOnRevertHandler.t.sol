@@ -30,8 +30,10 @@ contract Handler is Test{
     function depositCollateral(uint256 collateralSeed, uint256 amountCollateral) public {
         ERC20Mock collateral = _getCollateralFromSeed(collateralSeed);
         amountCollateral = bound(amountCollateral, 1, MAX_DEPOSIT_SIZE); 
+        console.log("collateral amount to deposit:", amountCollateral); 
         vm.startPrank(msg.sender);
         collateral.mint(msg.sender, amountCollateral); 
+        console.log("Minted collateral:", amountCollateral);
         collateral.approve(address(engine), amountCollateral);
 
         engine.depositCollateral(address(collateral), amountCollateral);
@@ -66,10 +68,10 @@ function redeemCollateral(uint256 collateralSeed, uint256 amountCollateral) publ
     }
 
     //This breaks the invariant test suite !!!
-    // function updateCollateralPrice(uint96 priceUpdate) public {
-    //     int256 newPrice = int256(uint256(priceUpdate)); 
-    //     ethPriceFeed.updateAnswer(newPrice) ;
-    // }
+    function updateCollateralPrice(uint96 priceUpdate) public {
+        int256 newPrice = int256(uint256(priceUpdate)); 
+        ethPriceFeed.updateAnswer(newPrice) ;
+    }
 
 
     //Helper functions  
