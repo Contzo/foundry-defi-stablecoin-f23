@@ -61,6 +61,7 @@ contract DSCEngine is ReentrancyGuard {
     mapping(address user => uint256 amountDSCMinted) s_DSCMinted;
     mapping(address collateralToken => int256 lastValidCollateralPrice) s_collateralLastValidPrices ; 
     address[] private s_collateralTokens;
+    uint256 private circuitBrakeTimeStamp ; 
     uint256 private constant ADDITIONAL_PRICE_FEED_PRECISION = 1e10;
     uint256 private constant PRECISION = 1e18;
     uint256 private constant LIQUIDATION_THRESHOLD = 5e17;
