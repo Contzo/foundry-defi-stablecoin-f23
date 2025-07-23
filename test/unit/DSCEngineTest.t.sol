@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
-import {Test} from "forge-std/Test.sol";
+import {Test, console} from "forge-std/Test.sol";
 import {DeployDSC} from "../../script/DeployDSC.s.sol"; 
 import {DecentralizedStableCoin} from "../../src/DecentralizedStableCoin.sol";
 import {DSCEngine} from "../../src/DSCEngine.sol" ; 
 import {HelperConfig} from "../../script/HelperConfig.s.sol"; 
+import {MockV3Aggregator} from "@chainlink/contracts/src/v0.8/tests/MockV3Aggregator.sol";
 import {ERC20Mock} from "@openzeppelin/contracts/mocks/ERC20Mock.sol";
 
 contract DSCEngineTest is Test{
@@ -17,9 +18,10 @@ contract DSCEngineTest is Test{
     address weth; 
 
     address public USER = makeAddr("user"); 
-    address public ARBITRAGEUR = makeAddr("arbitrageur"); 
+    address public ARBITRAGEUR = makeAddr("arbitrageur");  
     uint256 public constant AMOUNT_COLLATERAL = 10 ether; 
     uint256 public constant INITIAL_AMOUNT = 1000 ether ; 
+    uint256 private constant PRECISION = 1e18;
 
     function setUp() public{
         deployer = new DeployDSC() ; 
@@ -259,5 +261,57 @@ contract DSCEngineTest is Test{
         vm.expectRevert(DSCEngine.DSCEngine__HealthFactorOk.selector);
         vm.startPrank(ARBITRAGEUR);
         engine.liquidate(weth, USER, deptToCover);
+    }
+
+
+    /*//////////////////////////////////////////////////////////////
+                          CIRCUIT_BRAKE_TEST
+    //////////////////////////////////////////////////////////////*/
+
+    function testUpdatePriceNotCircuitBrake() public{
+      // setup 
+      uint256 currentUSDPrice = engine.getUSDValue(weth, 1 ether);  
+      uint256 smallPriceDropPercentage = 5e16;  // 5% price drop
+      uint256 priceDrop = (currentUSDPrice * smallPriceDropPercentage)/ PRECISION ; 
+      uint256 expectedNewDroppedPrice = currentUSDPrice - priceDrop; 
+
+      //Execute 
+      MockV3Aggregator(ethUsdPriceFeed).updateAnswer(int256(expectedNewDroppedPrice / 1e10)); // scale back the precision to the 8 decimals expected by the price feed
+      //Assert 
+      uint256 newUSDPrice= engine.getUSDValue(weth, 1 ether);  
+      assertEq(newUSDPrice, expectedNewDroppedPrice, "Should return updated price"); 
+    }
+
+    function testUpdatePriceCircuitBrake() public{
+      uint256 currentUSDPrice = engine.getUSDValue(weth, 1 ether);  
+      uint256 smallPriceDropPercentage = 40e16; // 40% percent price drop
+      uint256 priceDrop = (currentUSDPrice * smallPriceDropPercentage)/ PRECISION ; 
+      uint256 expectedNewDroppedPrice = currentUSDPrice - priceDrop; 
+      uint256 coolDownPeriod = 1 hours ; 
+     //Execute 
+      MockV3Aggregator(ethUsdPriceFeed).updateAnswer(int256(expectedNewDroppedPrice / 1e10)); // scale back the precision to the 8 decimals expected by the price feed
+     //Assert 
+     vm.expectRevert(abi.encodeWithSelector(DSCEngine.DSCEngine__CircuitBrake_PriceDroppedToMuch_RestoringIn.selector, coolDownPeriod));
+     engine.getUSDValue(weth, 1 ether);
+    }
+
+    function testUpdatePrice_RecoveryAfterCoolDown() public{
+    //Setup 
+      uint256 currentUSDPrice = engine.getUSDValue(weth, 1 ether);  
+      uint256 smallPriceDropPercentage = 40e16; // 40% percent price drop
+      uint256 priceDrop = (currentUSDPrice * smallPriceDropPercentage)/ PRECISION ; 
+      uint256 expectedNewDroppedPrice = currentUSDPrice - priceDrop; 
+      uint256 coolDownPeriod = 1 hours ; 
+
+      //Execute 
+      MockV3Aggregator(ethUsdPriceFeed).updateAnswer(int256(expectedNewDroppedPrice / 1e10)); // scale back the precision to the 8 decimals expected by the price feed
+
+      //Assert 
+      DSCEngine.OracleStatus memory state = engine.updatePrice(MockV3Aggregator(ethUsdPriceFeed),weth, int256(currentUSDPrice));
+      assertEq(state.price, type(int256).min);
+
+      vm.warp(block.timestamp + coolDownPeriod + 1);
+      uint256 newPriceAfterCoolDown = engine.getUSDValue(weth, 1 ether);
+      assertEq(newPriceAfterCoolDown, expectedNewDroppedPrice);
     }
 }

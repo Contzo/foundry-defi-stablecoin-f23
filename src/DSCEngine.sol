@@ -32,6 +32,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.
 import {IERC20} from "@openzeppelin/contracts/interfaces/IERC20.sol";
 import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 import {OracleLib} from "./libraries/OracleLib.sol"; 
+import {Test, console} from "forge-std/Test.sol";
 
 /**
  * @title DSCEngine
@@ -52,6 +53,10 @@ contract DSCEngine is ReentrancyGuard {
                                  TYPES
     //////////////////////////////////////////////////////////////*/
     using OracleLib for AggregatorV3Interface; 
+    struct OracleStatus{
+        int256 price; 
+        bool paused; 
+    }
     /*//////////////////////////////////////////////////////////////
                             STATE VARIABLES
     //////////////////////////////////////////////////////////////*/
@@ -61,12 +66,14 @@ contract DSCEngine is ReentrancyGuard {
     mapping(address user => uint256 amountDSCMinted) s_DSCMinted;
     mapping(address collateralToken => int256 lastValidCollateralPrice) s_collateralLastValidPrices ; 
     address[] private s_collateralTokens;
-    uint256 private circuitBrakeTimeStamp ; 
+    uint256 private s_circuitBrakeTimeStamp ; 
     uint256 private constant ADDITIONAL_PRICE_FEED_PRECISION = 1e10;
     uint256 private constant PRECISION = 1e18;
     uint256 private constant LIQUIDATION_THRESHOLD = 5e17;
     uint256 private constant MIN_HEALTH_FACTOR = 1e18;
     uint256 private constant LIQUIDATION_BONUS = 1e17 ; 
+    int256 private constant ALLOWED_PRICE_DROP = 20e16;
+    uint256 private constant CIRCUIT_BRAKE_COOLDOWN = 1 hours; 
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
@@ -86,6 +93,8 @@ contract DSCEngine is ReentrancyGuard {
     error DSCEngine__MintFailed();
     error DSCEngine__HealthFactorOk() ; 
     error DSCEngine__HealthFactorNotImproved() ; 
+    error DSCEngine__PriceIsZero(); 
+    error DSCEngine__CircuitBrake_PriceDroppedToMuch_RestoringIn(uint256 cooldown) ;
 
     /*//////////////////////////////////////////////////////////////
                                MODIFIERS
@@ -98,6 +107,12 @@ contract DSCEngine is ReentrancyGuard {
     modifier isAllowedToken(address _token) {
         if (s_priceFeeds[_token] == address(0)) {
             revert DSCEngine__TokenAddressIsNotAllowed();
+        }
+        _;
+    }
+    modifier circuitBrakeActiveCheck(){
+        if(s_circuitBrakeTimeStamp != 0 && block.timestamp < s_circuitBrakeTimeStamp + CIRCUIT_BRAKE_COOLDOWN){
+            revert DSCEngine__CircuitBrake_PriceDroppedToMuch_RestoringIn(s_circuitBrakeTimeStamp + CIRCUIT_BRAKE_COOLDOWN - block.timestamp); 
         }
         _;
     }
@@ -164,7 +179,7 @@ contract DSCEngine is ReentrancyGuard {
      * @param amountCollateral the amount of the collateral token, the user wants to redeem. 
      * @notice CEI: Check, Effects, Interactions
      */
-    function redeemCollateral(address tokenCollateralAddress, uint256 amountCollateral) public moreThenZero(amountCollateral) nonReentrant{
+    function redeemCollateral(address tokenCollateralAddress, uint256 amountCollateral) public moreThenZero(amountCollateral) nonReentrant circuitBrakeActiveCheck {
        _redeemCollateral(tokenCollateralAddress, amountCollateral, msg.sender, msg.sender); // user redeems its own collateral
       // check if the health factor is still > 1 
         _revertIfHealthFactorIsBroken(msg.sender); 
@@ -175,7 +190,7 @@ contract DSCEngine is ReentrancyGuard {
      * @param amountDscToMint - The amount of decentralized stable coin to mint
      * @notice They must have more collateral then the minimum threshold
      */
-    function mintDsc(uint256 amountDscToMint) public moreThenZero(amountDscToMint) nonReentrant {
+    function mintDsc(uint256 amountDscToMint) public moreThenZero(amountDscToMint) nonReentrant circuitBrakeActiveCheck {
         s_DSCMinted[msg.sender] += amountDscToMint;
         _revertIfHealthFactorIsBroken(msg.sender); // check if the newly minted DSC will brake the health factor
         bool successMinted = i_dscToken.mint(msg.sender, amountDscToMint);
@@ -196,7 +211,7 @@ contract DSCEngine is ReentrancyGuard {
      * @param amountDSCToBurn - the amount of DSC we burn for redeeming the collateral.
      * @notice the health factor of the user is checked in the both redeem and burn functions
      */
-    function redeemCollateralForDsc(address tokenCollateralAddress, uint256 amountCollateral, uint256 amountDSCToBurn) external {
+    function redeemCollateralForDsc(address tokenCollateralAddress, uint256 amountCollateral, uint256 amountDSCToBurn) external circuitBrakeActiveCheck {
         burnDSC(amountDSCToBurn);
         redeemCollateral(tokenCollateralAddress, amountCollateral);
     }
@@ -220,7 +235,7 @@ contract DSCEngine is ReentrancyGuard {
      * @notice A know bug would if the protocol were only 100% collateralize, then we would not be able to pay liquidation incentives. 
      * @notice follow CEI
      */
-    function liquidate(address collateral, address user, uint256 deptToCover) external  moreThenZero(deptToCover) nonReentrant {
+    function liquidate(address collateral, address user, uint256 deptToCover) external  moreThenZero(deptToCover) nonReentrant circuitBrakeActiveCheck {
         uint256 startingHealthFactor = _healthFactor(user);
         // check if the user can be liquidated
         if(startingHealthFactor >= MIN_HEALTH_FACTOR) {
@@ -244,11 +259,8 @@ contract DSCEngine is ReentrancyGuard {
     function getHealthFactor(address user) external  returns(uint256 healthFactor){
         healthFactor = _healthFactor(user);
     }
-        
-    /*//////////////////////////////////////////////////////////////
-                            PUBLIC & EXTERNAL VIEW FUNCTIONS
-    //////////////////////////////////////////////////////////////*/
-    function getAccountCollateralValueInUSD(address _user) public  returns (uint256 totalUSDValue) {
+
+    function getAccountCollateralValueInUSD(address _user) public circuitBrakeActiveCheck  returns (uint256 totalUSDValue) {
         // loop through each collateral token the user has, and map it to the price in order to get the USD.
         uint256 collateralTokensLength = s_collateralTokens.length;
         for (uint256 i = 0; i < collateralTokensLength; i++) {
@@ -260,11 +272,13 @@ contract DSCEngine is ReentrancyGuard {
 
     function getUSDValue(address _token, uint256 _amount) public  returns (uint256 USDValue) {
         AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[_token]);
-        // (, int256 price,,,) = priceFeed.stalePriceCheck();
         int256 lastGoodPrice = s_collateralLastValidPrices[_token]; 
-        int256 price = priceFeed.updatePrice(lastGoodPrice);
-        s_collateralLastValidPrices[_token] = price ;
-        USDValue = ((uint256(price) * ADDITIONAL_PRICE_FEED_PRECISION) * _amount) / PRECISION;
+        OracleStatus memory status = _updatePrice(priceFeed,_token,  lastGoodPrice);
+        if(status.paused){
+            revert DSCEngine__CircuitBrake_PriceDroppedToMuch_RestoringIn(s_circuitBrakeTimeStamp + CIRCUIT_BRAKE_COOLDOWN - block.timestamp) ;
+        }
+        s_collateralLastValidPrices[_token] = status.price ;
+        USDValue = ((uint256(status.price) * ADDITIONAL_PRICE_FEED_PRECISION) * _amount) / PRECISION;
     }
 
     /**
@@ -273,9 +287,7 @@ contract DSCEngine is ReentrancyGuard {
      */
     function getTokenAmountFromUSD(address token, uint256 usdAmountInWei) public  returns(uint256){
         AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[token]) ; 
-        // (, int256 price,,,) = priceFeed.stalePriceCheck(); 
-         int256 lastGoodPrice = s_collateralLastValidPrices[token]; 
-        int256 price = priceFeed.updatePrice(lastGoodPrice);
+        (,int256 price,,,) = priceFeed.stalePriceCheck();
         s_collateralLastValidPrices[token] = price ;
         return (usdAmountInWei * PRECISION) / (uint256(price) * ADDITIONAL_PRICE_FEED_PRECISION); 
     }
@@ -283,11 +295,15 @@ contract DSCEngine is ReentrancyGuard {
     function getAccountInformation(address user) external  returns (uint256 totalDSCMinted, uint256 collateralValueInUSD){
         (totalDSCMinted, collateralValueInUSD) = _getAccountInformation(user);
     }
+
+    function updatePrice(AggregatorV3Interface priceFeed, address token,  int256 lastGoodPrice) external returns(OracleStatus memory){
+        return _updatePrice(priceFeed,token, lastGoodPrice);
+    }
     /*//////////////////////////////////////////////////////////////
                       PRIVATE & INTERNAL FUNCTION
     //////////////////////////////////////////////////////////////*/
 
-    function _redeemCollateral(address tokenCollateralAddress, uint256 amountCollateral, address from, address to) internal {
+    function _redeemCollateral(address tokenCollateralAddress, uint256 amountCollateral, address from, address to) internal circuitBrakeActiveCheck {
         s_collateralDeposited[from][tokenCollateralAddress] -= amountCollateral ; 
         emit CollateralRedeemed(from, to, tokenCollateralAddress, amountCollateral); 
         bool success = IERC20(tokenCollateralAddress).transfer(to, amountCollateral);
@@ -309,14 +325,14 @@ contract DSCEngine is ReentrancyGuard {
         i_dscToken.burn(amountDSCToBurn); 
     }
     function _getAccountInformation(address _user)
-        private
+        private circuitBrakeActiveCheck
         returns (uint256 totalDSCMinted, uint256 collateralValueInUSD)
     {
         totalDSCMinted = s_DSCMinted[_user];
         collateralValueInUSD = getAccountCollateralValueInUSD(_user);
     }
 
-    function _healthFactor(address user) private  returns (uint256 healthFactor) {
+    function _healthFactor(address user) private circuitBrakeActiveCheck returns (uint256 healthFactor) {
         // total DSC minted
         // total collateral value
         (uint256 totalDSCMinted, uint256 collateralValueInUSD) = _getAccountInformation(user);
@@ -332,6 +348,38 @@ contract DSCEngine is ReentrancyGuard {
         }
     }
 
+    /**
+     * @notice - a function that will fetch the last price update. 
+     * @notice - if the price drops to low 
+     */
+    function _updatePrice(AggregatorV3Interface priceFeed, address token, int256 lastGoodPrice) private  returns(OracleStatus memory){
+        (, int256 newPrice,,,) = priceFeed.stalePriceCheck(); 
+        if(s_circuitBrakeTimeStamp != 0 &&block.timestamp < s_circuitBrakeTimeStamp + CIRCUIT_BRAKE_COOLDOWN){
+            return OracleStatus(type(int256).min, true) ; // still paused
+        }
+        console.log("Last good price", lastGoodPrice); 
+        bool paused = _checkCircuitBreaker(lastGoodPrice, newPrice);
+        if(paused){
+            s_circuitBrakeTimeStamp = block.timestamp; 
+            s_collateralLastValidPrices[token] = newPrice; 
+            return OracleStatus(type(int256).min, true );  // trigger circuit brake 
+        }
+        return OracleStatus(newPrice, false); 
+    }
+
+
+    /**
+     * @notice - a function that determines if the collateral price drop should impose a temporary circuit brake of the engine
+     * @param lastGoodPrice - is the last price update that was withing the allowed price drop
+     * @param newPrice - the new price that needs to be analyzed 
+     */
+    function _checkCircuitBreaker(int256 lastGoodPrice, int256 newPrice) private pure returns(bool){
+        if(lastGoodPrice == 0) revert DSCEngine__PriceIsZero() ; 
+        int256 maxPriceDrop = lastGoodPrice * ALLOWED_PRICE_DROP / int256(PRECISION); 
+        int256 minThreshold = lastGoodPrice - maxPriceDrop ; 
+        if(newPrice < minThreshold) return true ; 
+        else return false ;
+    }
     /*//////////////////////////////////////////////////////////////
                                 GETTERS
     //////////////////////////////////////////////////////////////*/
