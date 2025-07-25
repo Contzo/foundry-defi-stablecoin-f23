@@ -58,7 +58,7 @@ contract StackingPool is Ownable, ReentrancyGuard{
     mapping(address user => uint256 lastClaimed) private s_lastRewardClaimedTimeStamp ; 
     StackingStableCoin immutable i_SDSC ; 
     DecentralizedStableCoin immutable i_DSC; 
-    uint256 constant EMISSION_PERIOD = 1 weeks; 
+    uint256 private emissionPeriod ; 
     uint256 constant PRECISION = 1e18; 
 
 
@@ -68,6 +68,7 @@ contract StackingPool is Ownable, ReentrancyGuard{
     event DSCStacked(address indexed user,uint256 indexed amountDSCStaked); 
     event YieldClaimed(address indexed user, uint256 indexed yieldClaimed) ; 
     event DSCWithdraw(address indexed user, uint256 indexed withdrawDSC); 
+    event YieldPoolFunded(address indexed source, uint256 indexed amount); 
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
@@ -77,6 +78,8 @@ contract StackingPool is Ownable, ReentrancyGuard{
     error StackingPool__NeedsMoreThenZero();
     error StackingPool__NotEnoughYield(uint256 yield);
     error StackingPool__InsufficientDSCInPool(); 
+    error StakingPool__NoStakeForUser(address user) ;
+    error StakingPool__NoYieldForUser(address user); 
 
 
     /*//////////////////////////////////////////////////////////////
@@ -86,9 +89,10 @@ contract StackingPool is Ownable, ReentrancyGuard{
         if(_amount <= 0) revert StackingPool__NeedsMoreThenZero() ; 
         _; 
     }
-    constructor(address _poolTokenAddress, address _stableCoinAddress){
+    constructor(address _poolTokenAddress, address _stableCoinAddress, uint256 _initialEmissionPeriod){
         i_SDSC = StackingStableCoin(_poolTokenAddress); 
         i_DSC = DecentralizedStableCoin(_stableCoinAddress); 
+        emissionPeriod = _initialEmissionPeriod; 
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -122,9 +126,15 @@ contract StackingPool is Ownable, ReentrancyGuard{
         if(!mintSuccess) revert StackingPool__MintingSDSCFailed() ; 
     }
 
+    /**
+     * @notice the user burns some SDSC in order to receive some of all of his stake and the accumulated yield
+     * @notice this follows the CEI pattern
+     * @param _SDSCamountToBurn the amount of SDSC the user will burn for DSC
+     */
     function withdraw(uint256 _SDSCamountToBurn) external moreThenZero(_SDSCamountToBurn) nonReentrant {
        //Effect 
        uint256 userDSCStake = _getStake(_SDSCamountToBurn);
+       if(userDSCStake == 0)  revert StakingPool__NoStakeForUser(msg.sender) ;
        if(userDSCStake > i_DSC.balanceOf(address(this))) revert StackingPool__InsufficientDSCInPool() ; 
        s_totalDSCStacked -= userDSCStake; 
        uint256 userDSCYield= getUserReward(msg.sender);
@@ -143,9 +153,15 @@ contract StackingPool is Ownable, ReentrancyGuard{
        i_SDSC.burn(_SDSCamountToBurn);
     }
 
+    /**
+     * @notice function used to retrieve the accumulated yield
+     * @notice follows the CEI pattern
+     */
+
     function claimYield() external nonReentrant{
         //Effect 
         uint256 userDSCYield = getUserReward(msg.sender);
+        if(userDSCYield == 0)  revert StakingPool__NoYieldForUser(msg.sender); 
         if(s_yieldPoolBalance < userDSCYield) revert StackingPool__NotEnoughYield(s_yieldPoolBalance) ; 
         s_yieldPoolBalance -= userDSCYield ; 
         s_lastRewardClaimedTimeStamp[msg.sender] = block.timestamp; 
@@ -154,6 +170,23 @@ contract StackingPool is Ownable, ReentrancyGuard{
         //Interact
         bool transferSuccess = i_DSC.transfer(msg.sender, userDSCYield); 
         if(!transferSuccess) revert StackingPool__TransferFailed() ; 
+    }
+
+    /**
+     * @notice function used to fund the yield pool 
+     * @notice this function will mainly be called by the DSC engine, in order to fund the pool with the fees
+     * @param _amountDSCToFund the amount of DSC that will fund the pool
+     */
+    function fundStakePool(uint256 _amountDSCToFund) external moreThenZero(_amountDSCToFund) nonReentrant onlyOwner{
+        // this function uses a push pattern 
+        // the funds are pushed from the engine, they are not pulled from the stake pool contract 
+        // Effect 
+        s_yieldPoolBalance +=_amountDSCToFund; 
+        emit YieldPoolFunded(msg.sender, _amountDSCToFund); 
+    }
+
+    function adjustEmissionPeriod(uint256 _newEmissionPeriod) external onlyOwner moreThenZero(_newEmissionPeriod) nonReentrant() {
+        emissionPeriod = _newEmissionPeriod ; 
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -169,6 +202,8 @@ contract StackingPool is Ownable, ReentrancyGuard{
         stake = (_amountSDSC * s_totalDSCStacked)/SDSCTotalSupply ; 
     }
 
+
+
     /*//////////////////////////////////////////////////////////////
                                 GETTERS
     //////////////////////////////////////////////////////////////*/
@@ -179,7 +214,7 @@ contract StackingPool is Ownable, ReentrancyGuard{
         // determine the amount a user can claim 
         uint256 lastClaimedTimestamp = s_lastRewardClaimedTimeStamp[_user]; 
         if (block.timestamp <= lastClaimedTimestamp) return 0;
-        uint256 currentGlobalEmissionRate = s_yieldPoolBalance/EMISSION_PERIOD; 
+        uint256 currentGlobalEmissionRate = s_yieldPoolBalance/emissionPeriod ; 
         uint256 currentUserPoolStake = getUserStake(_user);
         uint256 timeElapsedSinceLastClaim = block.timestamp - lastClaimedTimestamp; 
         uint256 stakeShare = (currentUserPoolStake * PRECISION) / s_totalDSCStacked; 
@@ -192,5 +227,13 @@ contract StackingPool is Ownable, ReentrancyGuard{
     function getUserStake(address _user) public view returns(uint256 userStake) {
        uint256 currentUserSDSCBalance = i_SDSC.balanceOf(_user);
         userStake = _getStake(currentUserSDSCBalance);
+    }
+
+    function getTotalStakePool()public view returns(uint256 totalStakeBalance) {
+       totalStakeBalance = s_totalDSCStacked;  
+    }
+
+    function getEmissionPeriod()public view returns(uint256){
+       return emissionPeriod;  
     }
 }

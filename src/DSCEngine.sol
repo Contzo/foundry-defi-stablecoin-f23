@@ -33,6 +33,7 @@ import {IERC20} from "@openzeppelin/contracts/interfaces/IERC20.sol";
 import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 import {OracleLib} from "./libraries/OracleLib.sol"; 
 import {Test, console} from "forge-std/Test.sol";
+import {StackingPool} from "./StackingPool.sol"; 
 
 /**
  * @title DSCEngine
@@ -62,6 +63,7 @@ contract DSCEngine is ReentrancyGuard {
     //////////////////////////////////////////////////////////////*/
     mapping(address tokenAddress => address priceFeed) private s_priceFeeds;
     DecentralizedStableCoin private immutable i_dscToken;
+    StackingPool private immutable i_dscYieldPool; 
     mapping(address user => mapping(address token => uint256 amount)) private s_collateralDeposited;
     mapping(address user => uint256 amountDSCMinted) s_DSCMinted;
     mapping(address collateralToken => int256 lastValidCollateralPrice) s_collateralLastValidPrices ; 
@@ -71,8 +73,9 @@ contract DSCEngine is ReentrancyGuard {
     uint256 private constant PRECISION = 1e18;
     uint256 private constant LIQUIDATION_THRESHOLD = 5e17;
     uint256 private constant MIN_HEALTH_FACTOR = 1e18;
-    uint256 private constant LIQUIDATION_BONUS = 1e17 ; 
-    int256 private constant ALLOWED_PRICE_DROP = 20e16;
+    uint256 private constant LIQUIDATION_BONUS = 10e16 ; // 10%
+    uint256 private constant DEPOSIT_FEE = 5e16;  // 5% 
+    int256 private constant ALLOWED_PRICE_DROP = 20e16; // 20%
     uint256 private constant CIRCUIT_BRAKE_COOLDOWN = 1 hours; 
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
@@ -95,6 +98,7 @@ contract DSCEngine is ReentrancyGuard {
     error DSCEngine__HealthFactorNotImproved() ; 
     error DSCEngine__PriceIsZero(); 
     error DSCEngine__CircuitBrake_PriceDroppedToMuch_RestoringIn(uint256 cooldown) ;
+    error DSCEngine__ApprovalFailed() ; 
 
     /*//////////////////////////////////////////////////////////////
                                MODIFIERS
@@ -120,7 +124,7 @@ contract DSCEngine is ReentrancyGuard {
     /*//////////////////////////////////////////////////////////////
                                FUNCTIONS
     //////////////////////////////////////////////////////////////*/
-    constructor(address[] memory _allowedTokenAddresses, address[] memory _priceFeedsAddresses, address _dscAddress) {
+    constructor(address[] memory _allowedTokenAddresses, address[] memory _priceFeedsAddresses, address _dscAddress, address _DSCYieldPool) {
         if (_allowedTokenAddresses.length != _priceFeedsAddresses.length) {
             revert DSCEngine__TokenAddressesAndPriceFeedAddressesMustBeTheSameLength();
         }
@@ -132,6 +136,7 @@ contract DSCEngine is ReentrancyGuard {
         }
 
         i_dscToken = DecentralizedStableCoin(_dscAddress);
+        i_dscYieldPool = StackingPool(_DSCYieldPool) ;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -159,13 +164,17 @@ contract DSCEngine is ReentrancyGuard {
         isAllowedToken(_tokenCollateralAddress)
         nonReentrant
     {
-        s_collateralDeposited[msg.sender][_tokenCollateralAddress] += _amountCollateral;
-        emit CollateralDeposited(msg.sender, _tokenCollateralAddress, _amountCollateral);
+        uint256 depositFee = (_amountCollateral* DEPOSIT_FEE) / PRECISION ; 
+        uint256 netCollateralDeposit = _amountCollateral - depositFee;
+        s_collateralDeposited[msg.sender][_tokenCollateralAddress] += netCollateralDeposit;
+        emit CollateralDeposited(msg.sender, _tokenCollateralAddress, netCollateralDeposit);
+        //Effect 
         bool transferSuccess =
             IERC20(_tokenCollateralAddress).transferFrom(msg.sender, address(this), _amountCollateral);
         if (!transferSuccess) {
             revert DSCEngine__TransferFailed();
         }
+        _fundDscYieldPoolFromDeposit(depositFee, _tokenCollateralAddress);
     }
 
     function calculateHealthFactor(uint256 collateralValueInUsd, uint256 mintedDSC) public pure returns(uint256 healthFactor){
@@ -289,7 +298,7 @@ contract DSCEngine is ReentrancyGuard {
         AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[token]) ; 
         (,int256 price,,,) = priceFeed.stalePriceCheck();
         s_collateralLastValidPrices[token] = price ;
-        return (usdAmountInWei * PRECISION) / (uint256(price) * ADDITIONAL_PRICE_FEED_PRECISION); 
+        return (usdAmountInWei * PRECISION) / (uint256(price) * ADDITIONAL_PRICE_FEED_PRECISION);   
     }
 
     function getAccountInformation(address user) external  returns (uint256 totalDSCMinted, uint256 collateralValueInUSD){
@@ -379,6 +388,18 @@ contract DSCEngine is ReentrancyGuard {
         int256 minThreshold = lastGoodPrice - maxPriceDrop ; 
         if(newPrice < minThreshold) return true ; 
         else return false ;
+    }
+
+    function _fundDscYieldPoolFromDeposit(uint256 _collateralDepositFee, address _collateralToken) internal { 
+        // convert the fee to USD
+        uint256 depositFeeUsdValue = getUSDValue(_collateralToken, _collateralDepositFee);
+        // burn the collateral token used as fee 
+        IERC20(_collateralToken).transfer(address(0), _collateralDepositFee);
+
+        // Mint the DSC fee to the yield pool contract 
+        i_dscToken.mint(address(i_dscYieldPool), depositFeeUsdValue); 
+
+        i_dscYieldPool.fundStakePool(depositFeeUsdValue);
     }
     /*//////////////////////////////////////////////////////////////
                                 GETTERS
